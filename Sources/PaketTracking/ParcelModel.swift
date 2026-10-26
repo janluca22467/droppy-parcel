@@ -81,6 +81,9 @@ public enum ParcelTrackingError: Error, LocalizedError, Sendable {
     case rateLimited
     case http(Int)
     case unreadable
+    case offline
+    case timedOut
+    case blocked(String)
 
     public var errorDescription: String? {
         switch self {
@@ -90,6 +93,9 @@ public enum ParcelTrackingError: Error, LocalizedError, Sendable {
         case .rateLimited: return "Zu viele Abfragen"
         case .http(let code): return "Serverfehler \(code)"
         case .unreadable: return "Antwort nicht lesbar"
+        case .offline: return "Keine Internetverbindung"
+        case .timedOut: return "Zeitüberschreitung"
+        case .blocked(let detail): return "Verbindung fehlgeschlagen (\(detail))"
         }
     }
 }
@@ -133,12 +139,13 @@ public enum ParcelParser {
     }
 
     public static func parseDPD(_ data: Data) throws -> ParcelUpdate {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let response = root["parcellifecycleResponse"] as? [String: Any],
-              let lifecycle = response["parcelLifecycleData"] as? [String: Any],
-              let steps = lifecycle["statusInfo"] as? [[String: Any]],
-              !steps.isEmpty
-        else { throw ParcelTrackingError.notFound }
+        guard let root = try? JSONSerialization.jsonObject(with: data) else { throw ParcelTrackingError.unreadable }
+        guard let steps = findSteps(in: root), !steps.isEmpty else {
+            if let dictionary = root as? [String: Any], dictionary["errors"] != nil || dictionary["error"] != nil {
+                throw ParcelTrackingError.notFound
+            }
+            throw ParcelTrackingError.unreadable
+        }
 
         let current = steps.first { ($0["isCurrentStatus"] as? Bool) == true }
             ?? steps.last { ($0["statusHasBeenReached"] as? Bool) == true }
@@ -157,6 +164,20 @@ public enum ParcelParser {
         let description = ((current["description"] as? [String: Any])?["content"] as? [String])?.first
         let detail = description ?? (current["label"] as? String)
         return ParcelUpdate(status: status, detail: detail, eta: nil)
+    }
+
+    static func findSteps(in node: Any) -> [[String: Any]]? {
+        if let dictionary = node as? [String: Any] {
+            if let steps = dictionary["statusInfo"] as? [[String: Any]] { return steps }
+            for value in dictionary.values {
+                if let found = findSteps(in: value) { return found }
+            }
+        } else if let array = node as? [Any] {
+            for value in array {
+                if let found = findSteps(in: value) { return found }
+            }
+        }
+        return nil
     }
 
     static func parseDate(_ string: String?) -> Date? {
@@ -190,23 +211,45 @@ public enum ParcelClient {
             var request = URLRequest(url: components.url!, timeoutInterval: 20)
             request.setValue(dhlKey, forHTTPHeaderField: "DHL-API-Key")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            return try ParcelParser.parseDHL(try await load(request))
+            return try ParcelParser.parseDHL(try await load(request, keyed: true))
         case .dpd:
-            guard let encoded = number.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                  let url = URL(string: "https://tracking.dpd.de/rest/plc/de_DE/\(encoded)")
-            else { throw ParcelTrackingError.notFound }
-            var request = URLRequest(url: url, timeoutInterval: 20)
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            return try ParcelParser.parseDPD(try await load(request))
+            let digits = number.filter(\.isNumber)
+            let candidates = digits.count > 14 ? [String(digits.prefix(14)), digits] : [digits]
+            var lastError: Error = ParcelTrackingError.notFound
+            for candidate in candidates where !candidate.isEmpty {
+                guard let url = URL(string: "https://tracking.dpd.de/rest/plc/de_DE/\(candidate)") else { continue }
+                var request = URLRequest(url: url, timeoutInterval: 20)
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                request.setValue("de-DE", forHTTPHeaderField: "Accept-Language")
+                request.setValue("https://tracking.dpd.de/", forHTTPHeaderField: "Referer")
+                do {
+                    return try ParcelParser.parseDPD(try await load(request))
+                } catch ParcelTrackingError.notFound {
+                    lastError = ParcelTrackingError.notFound
+                } catch {
+                    throw error
+                }
+            }
+            throw lastError
         }
     }
 
-    private static func load(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
+    private static func load(_ request: URLRequest, keyed: Bool = false) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError {
+            switch error.code {
+            case .notConnectedToInternet, .networkConnectionLost: throw ParcelTrackingError.offline
+            case .timedOut: throw ParcelTrackingError.timedOut
+            default: throw ParcelTrackingError.blocked("\(error.code.rawValue)")
+            }
+        }
         guard let http = response as? HTTPURLResponse else { throw ParcelTrackingError.unreadable }
         switch http.statusCode {
         case 200..<300: return data
-        case 401, 403: throw ParcelTrackingError.invalidKey
+        case 401, 403: throw keyed ? ParcelTrackingError.invalidKey : ParcelTrackingError.http(http.statusCode)
         case 404: throw ParcelTrackingError.notFound
         case 429: throw ParcelTrackingError.rateLimited
         default: throw ParcelTrackingError.http(http.statusCode)
