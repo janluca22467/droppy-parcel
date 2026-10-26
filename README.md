@@ -18,6 +18,10 @@ Sendungsnummer eintragen, den Rest erledigt die Notch.
 
 </div>
 
+> [!WARNING]
+> **Status: in Entwicklung, noch nicht voll funktionsfähig.**
+> Der DPD-Abruf funktioniert derzeit nicht: DPD trennt die Verbindung zum inoffiziellen Tracking-Endpunkt (Fehler `-1005`). Der DHL-Abruf ist noch nicht live getestet. Die Oberfläche (Notch, Shelf, Einstellungen) ist fertig, die Statusabfrage ist es nicht. Eine Lösung für DPD ist geplant.
+
 ---
 
 <p align="center">
@@ -104,7 +108,8 @@ Zugestellte Pakete und Sendungen mit Problem lösen die Aktivität nicht aus.
 
 ## Hinweise
 
-- Der DPD-Abruf nutzt den öffentlichen Endpunkt der DPD-Sendungsverfolgung. Er ist nicht offiziell dokumentiert und kann sich ändern.
+- **DPD funktioniert aktuell nicht.** Der Abruf nutzt den inoffiziellen Endpunkt der DPD-Sendungsverfolgung. DPD trennt die Verbindung (Fehler `-1005`), der Endpunkt ist vermutlich veraltet oder für automatische Abfragen gesperrt.
+- **DHL ist noch nicht live getestet.** Ohne gültigen API-Schlüssel kommt keine Antwort.
 - DHL begrenzt kostenlose Schlüssel auf eine feste Zahl Abfragen pro Tag. Bei vielen Sendungen das Intervall erhöhen.
 
 ## Fehlerbehebung
