@@ -1,0 +1,41 @@
+{
+  "id": "paket-tracking",
+  "name": "Paket-Tracking",
+  "version": "1.0.0",
+  "summary": "DHL- und DPD-Pakete, „kommt heute“ in der Notch",
+  "description": "Verfolgt DHL- und DPD-Sendungen und zeigt in der Notch als Live-Aktivität, wenn ein Paket heute kommt.\n\nDie Übersicht liegt im Shelf. DHL benötigt einen kostenlosen API-Schlüssel von developer.dhl.com, DPD funktioniert ohne.",
+  "category": "Productivity",
+  "kit": {
+    "abi": 1,
+    "minAPI": "1.9.0"
+  },
+  "minAppVersion": "15.3.0",
+  "capabilities": [
+    "network-client"
+  ],
+  "surfaces": [
+    "shelf-widget",
+    "live-activity",
+    "settings-pane"
+  ],
+  "icon": "PaketTracking.icon",
+  "creator": {
+    "name": "Jan-Luca Hopcke",
+    "kind": "community",
+    "url": "https://github.com/janluca22467",
+    "avatar": "Creator.png",
+    "gitlab": "janluca22467"
+  },
+  "source": {
+    "repository": "https://github.com/janluca22467/droppy-parcel",
+    "license": "MIT"
+  },
+  "screenshots": [],
+  "keywords": [
+    "paket",
+    "dhl",
+    "dpd",
+    "tracking",
+    "versand"
+  ]
+}
