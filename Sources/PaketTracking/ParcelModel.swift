@@ -81,7 +81,7 @@ public enum ParcelTrackingError: Error, LocalizedError, Sendable {
     case rateLimited
     case http(Int)
     case unreadable
-    case offline
+    case offline(Int)
     case timedOut
     case blocked(String)
 
@@ -93,7 +93,7 @@ public enum ParcelTrackingError: Error, LocalizedError, Sendable {
         case .rateLimited: return "Zu viele Abfragen"
         case .http(let code): return "Serverfehler \(code)"
         case .unreadable: return "Antwort nicht lesbar"
-        case .offline: return "Keine Internetverbindung"
+        case .offline(let code): return code == -1005 ? "Server hat die Verbindung getrennt (-1005)" : "Keine Internetverbindung (\(code))"
         case .timedOut: return "Zeitüberschreitung"
         case .blocked(let detail): return "Verbindung fehlgeschlagen (\(detail))"
         }
@@ -237,13 +237,20 @@ public enum ParcelClient {
     private static func load(_ request: URLRequest, keyed: Bool = false) async throws -> Data {
         let data: Data
         let response: URLResponse
+        var request = request
+        request.setValue("PaketTracking/1.0 (Droppy droplet)", forHTTPHeaderField: "User-Agent")
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            do {
+                (data, response) = try await URLSession.shared.data(for: request)
+            } catch let error as URLError where error.code == .networkConnectionLost {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+                (data, response) = try await URLSession.shared.data(for: request)
+            }
         } catch let error as URLError {
             switch error.code {
-            case .notConnectedToInternet, .networkConnectionLost: throw ParcelTrackingError.offline
+            case .notConnectedToInternet, .networkConnectionLost: throw ParcelTrackingError.offline(error.code.rawValue)
             case .timedOut: throw ParcelTrackingError.timedOut
-            default: throw ParcelTrackingError.blocked("\(error.code.rawValue)")
+            default: throw ParcelTrackingError.blocked("\(error.code.rawValue) \(error.localizedDescription)")
             }
         }
         guard let http = response as? HTTPURLResponse else { throw ParcelTrackingError.unreadable }
